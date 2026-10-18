@@ -662,48 +662,75 @@ body[unresolved] {opacity: 0; display: block; overflow: hidden; position: relati
     }
 
     // ── STEP 1: username lookup ──
-    function validUsername(v) {
-      return v.length >= 3 && v.length <= 20 && /^[A-Za-z0-9_]+$/.test(v) &&
-             !v.startsWith('_') && !v.endsWith('_') && (v.match(/_/g) || []).length <= 1;
-    }
-    function userError(msg) {
-      $('userErr').textContent = msg;
-      $('usernameWrap').classList.add('error');
-      shake($('usernameWrap'));
-    }
-    $('usernameInput').addEventListener('input', () => { $('usernameWrap').classList.remove('error'); $('userErr').textContent = ''; });
-    $('usernameInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('lookupBtn').click(); });
-
     $('lookupBtn').addEventListener('click', async () => {
-      const username = $('usernameInput').value.trim();
-      if (!validUsername(username)) return userError('That is not a valid Roblox username.');
-      setLoading(true);
-      try {
-        const res = await fetch(LOOKUP_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username })
-        });
-        if (!res.ok) throw new Error('not found');
-        const d = await res.json();
-        if (!d || !d.userId) throw new Error('not found');
-        user = {
-          userId: d.userId,
-          username: (d.username || username).trim(),
-          displayName: (d.displayName || d.username || username).trim(),
-          avatarUrl: d.avatarUrl || ''
-        };
-        setAvatar($('avatarImg'), user.avatarUrl);
-        $('displayName').textContent = user.displayName;
-        $('userName').textContent = '@' + user.username;
-        $('profileLink').href = 'https://www.roblox.com/users/' + encodeURIComponent(user.userId) + '/profile';
-        showStep('stepConfirm');
-      } catch {
-        userError('Could not find that user. Check the spelling.');
-      } finally {
-        setLoading(false);
-      }
+  const username = $('usernameInput').value.trim();
+
+  if (!validUsername(username)) {
+    return userError('That is not a valid Roblox username.');
+  }
+
+  setLoading(true);
+
+  try {
+    if (typeof LOOKUP_URL !== 'string' || !LOOKUP_URL.trim()) {
+      throw new Error('The username lookup URL is not configured.');
+    }
+
+    const res = await fetch(LOOKUP_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
     });
+
+    if (!res.ok) {
+      throw new Error(
+        `Username lookup failed (HTTP ${res.status}).`
+      );
+    }
+
+    const payload = await res.json();
+
+    // Accept a custom backend response or an array-based response.
+    const d = Array.isArray(payload.data)
+      ? payload.data[0]
+      : payload;
+
+    const userId = d?.userId ?? d?.id;
+
+    if (!userId) {
+      throw new Error('Could not find that user. Check the spelling.');
+    }
+
+    user = {
+      userId,
+      username: String(d.username || d.name || username).trim(),
+      displayName: String(
+        d.displayName || d.username || d.name || username
+      ).trim(),
+      avatarUrl: d.avatarUrl || ''
+    };
+
+    setAvatar($('avatarImg'), user.avatarUrl);
+    $('displayName').textContent = user.displayName;
+    $('userName').textContent = '@' + user.username;
+    $('profileLink').href =
+      'https://www.roblox.com/users/' +
+      encodeURIComponent(user.userId) +
+      '/profile';
+
+    showStep('stepConfirm');
+  } catch (error) {
+    console.error('Username lookup error:', error);
+
+    userError(
+      error instanceof TypeError
+        ? 'Cannot connect to the username lookup service.'
+        : error.message || 'Username lookup failed. Try again.'
+    );
+  } finally {
+    setLoading(false);
+  }
+});
 
     // ── STEP 2: confirm ──
     $('noBtn').addEventListener('click', () => showStep('stepUser'));
